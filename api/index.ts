@@ -44,6 +44,11 @@ apiRouter.all('/bustracker/correlate', (req, res) => {
   return busTrackerHandler(req, res);
 });
 
+apiRouter.all('/bustracker/nearby', (req, res) => {
+  req.query.endpoint = 'nearby';
+  return busTrackerHandler(req, res);
+});
+
 apiRouter.get('/feed', (req, res) => {
   return feedHandler(req, res);
 });

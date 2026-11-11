@@ -87,18 +87,67 @@ export interface CorrelatedBusArrivalData {
   timestamp: string;
 }
 
-export const KNOWN_BUS_STOPS: Record<string, { lat: number; lng: number; name: string; road: string }> = {
-  '83139': { lat: 1.30155, lng: 103.90538, name: 'Opp Parkway Parade', road: 'Marine Parade Rd' },
-  '09048': { lat: 1.30403, lng: 103.83307, name: 'Orchard Stn / Lucky Plaza', road: 'Orchard Rd' },
-  '65009': { lat: 1.35334, lng: 103.94523, name: 'Tampines Stn / Int', road: 'Tampines Ave 4' },
-  '10009': { lat: 1.26477, lng: 103.82236, name: 'Opp VivoCity', road: 'Telok Blangah Rd' },
-  '04121': { lat: 1.28549, lng: 103.84968, name: 'OCBC Ctr / Raffles Pl', road: 'Chulia St' },
-  '28009': { lat: 1.33315, lng: 103.74229, name: 'Jurong East Bus Int', road: 'Jurong Gateway Rd' },
-  '01012': { lat: 1.29815, lng: 103.84988, name: 'Hotel Rendezvous', road: 'Bras Basah Rd' },
-  '11119': { lat: 1.29420, lng: 103.80620, name: 'Bef Queenstown Stn', road: 'Commonwealth Ave' },
-  '52009': { lat: 1.35084, lng: 103.84814, name: 'Bishan Stn', road: 'Bishan Rd' },
-  '70019': { lat: 1.32402, lng: 103.92984, name: 'Bedok Stn Exit B', road: 'New Upper Changi Rd' },
+export interface BusStopInfo {
+  code: string;
+  name: string;
+  road: string;
+  lat: number;
+  lng: number;
+  services: string[];
+  neighborhood: string;
+}
+
+export const KNOWN_BUS_STOPS: Record<string, BusStopInfo> = {
+  '83139': { code: '83139', lat: 1.30155, lng: 103.90538, name: 'Opp Parkway Parade', road: 'Marine Parade Rd', neighborhood: 'Marine Parade', services: ['15', '31', '36', '43', '48', '134', '135', '196', '197'] },
+  '83149': { code: '83149', lat: 1.30230, lng: 103.90480, name: 'Parkway Parade', road: 'Marine Parade Rd', neighborhood: 'Marine Parade', services: ['15', '31', '36', '43', '48', '134', '135', '196', '197'] },
+  '09048': { code: '09048', lat: 1.30403, lng: 103.83307, name: 'Orchard Stn / Lucky Plaza', road: 'Orchard Rd', neighborhood: 'Orchard', services: ['7', '14', '16', '65', '106', '111', '123', '175', '502'] },
+  '09038': { code: '09038', lat: 1.30250, lng: 103.83680, name: 'Opp Mandarin Orchard', road: 'Orchard Rd', neighborhood: 'Orchard', services: ['36', '77', '124', '143', '167', '174', '190'] },
+  '04121': { code: '04121', lat: 1.28549, lng: 103.84968, name: 'OCBC Ctr / Raffles Pl', road: 'Chulia St', neighborhood: 'Downtown / CBD', services: ['186'] },
+  '03019': { code: '03019', lat: 1.28620, lng: 103.85310, name: 'Fullerton Sq', road: 'Fullerton Rd', neighborhood: 'Downtown / Marina', services: ['10', '57', '70', '75', '100', '107', '130', '131', '167', '196'] },
+  '02049': { code: '02049', lat: 1.29490, lng: 103.85400, name: 'Raffles Hotel', road: 'Bras Basah Rd', neighborhood: 'City Hall', services: ['14', '16', '36', '77', '106', '111', '130', '131', '133', '167', '857'] },
+  '01012': { code: '01012', lat: 1.29815, lng: 103.84988, name: 'Hotel Rendezvous', road: 'Bras Basah Rd', neighborhood: 'Bras Basah', services: ['7', '14', '16', '36', '111', '131', '162', '167', '175'] },
+  '65009': { code: '65009', lat: 1.35334, lng: 103.94523, name: 'Tampines Stn / Int', road: 'Tampines Ave 4', neighborhood: 'Tampines', services: ['3', '4', '10', '19', '20', '23', '28', '29', '31', '37', '38', '65', '67'] },
+  '65141': { code: '65141', lat: 1.35410, lng: 103.94380, name: 'Opp Tampines Stn', road: 'Tampines Ave 4', neighborhood: 'Tampines', services: ['15', '21', '27', '168'] },
+  '10009': { code: '10009', lat: 1.26477, lng: 103.82236, name: 'Opp VivoCity', road: 'Telok Blangah Rd', neighborhood: 'HarbourFront', services: ['10', '30', '57', '61', '97', '100', '131', '143', '145', '166'] },
+  '14141': { code: '14141', lat: 1.26380, lng: 103.82190, name: 'VivoCity', road: 'HarbourFront Walk', neighborhood: 'HarbourFront', services: ['10', '30', '61', '97', '100', '131', '143', '166', '188'] },
+  '28009': { code: '28009', lat: 1.33315, lng: 103.74229, name: 'Jurong East Bus Int', road: 'Jurong Gateway Rd', neighborhood: 'Jurong East', services: ['51', '52', '66', '78', '79', '97', '98', '105', '143', '183', '197', '333', '334', '335'] },
+  '17179': { code: '17179', lat: 1.31550, lng: 103.76520, name: 'Clementi Stn Exit A', road: 'Commonwealth Ave West', neighborhood: 'Clementi', services: ['14', '52', '96', '105', '106', '147', '154', '165', '166', '196'] },
+  '11119': { code: '11119', lat: 1.29420, lng: 103.80620, name: 'Bef Queenstown Stn', road: 'Commonwealth Ave', neighborhood: 'Queenstown', services: ['51', '111', '145', '186', '195', '970'] },
+  '52009': { code: '52009', lat: 1.35084, lng: 103.84814, name: 'Bishan Stn', road: 'Bishan Rd', neighborhood: 'Bishan', services: ['50', '52', '53', '54', '55', '56', '57', '58', '59', '410'] },
+  '54009': { code: '54009', lat: 1.36950, lng: 103.84850, name: 'Ang Mo Kio Int', road: 'AMK Ave 8', neighborhood: 'Ang Mo Kio', services: ['22', '24', '25', '73', '76', '86', '130', '132', '133', '135', '136', '138', '166'] },
+  '70019': { code: '70019', lat: 1.32402, lng: 103.92984, name: 'Bedok Stn Exit B', road: 'New Upper Changi Rd', neighborhood: 'Bedok', services: ['2', '9', '24', '28', '31', '35', '67', '222'] },
+  '46009': { code: '46009', lat: 1.43680, lng: 103.78650, name: 'Woodlands Temp Int', road: 'Woodlands Sq', neighborhood: 'Woodlands', services: ['161', '168', '169', '178', '187', '856', '900', '901', '903', '911', '912', '913', '925'] },
+  '59009': { code: '59009', lat: 1.42940, lng: 103.83510, name: 'Yishun Int', road: 'Yishun Ave 2', neighborhood: 'Yishun', services: ['39', '85', '103', '171', '800', '804', '806', '811', '812', '851', '852', '854', '855', '857'] },
+  '03218': { code: '03218', lat: 1.29120, lng: 103.85040, name: 'Opp The Treasury', road: 'North Bridge Rd', neighborhood: 'City Hall', services: ['32', '51', '61', '63', '80', '124', '145', '166', '174', '197'] },
+  '21009': { code: '21009', lat: 1.33920, lng: 103.70560, name: 'Boon Lay Int', road: 'Jurong West Central 3', neighborhood: 'Jurong West', services: ['30', '79', '154', '157', '174', '179', '181', '192', '193', '194', '198', '240', '241'] }
 };
+
+export interface NearbyBusStopResult extends BusStopInfo {
+  distanceKm: number;
+  distanceMeters: number;
+  walkingMinutes: number;
+}
+
+/**
+ * Finds bus stops near a given coordinate, sorted by distance.
+ */
+export function findNearbyBusStops(lat: number, lng: number, maxDistanceKm: number = 3.0): NearbyBusStopResult[] {
+  const results: NearbyBusStopResult[] = [];
+  for (const stop of Object.values(KNOWN_BUS_STOPS)) {
+    const distKm = calculateDistanceKm(lat, lng, stop.lat, stop.lng);
+    if (distKm <= maxDistanceKm) {
+      const distM = Math.round(distKm * 1000);
+      const walkMin = Math.max(1, Math.round(distM / 80)); // 80m per min average walk
+      results.push({
+        ...stop,
+        distanceKm: distKm,
+        distanceMeters: distM,
+        walkingMinutes: walkMin,
+      });
+    }
+  }
+  return results.sort((a, b) => a.distanceKm - b.distanceKm);
+}
 
 /**
  * Calculates geographic distance in kilometers using the Haversine formula.
@@ -392,7 +441,27 @@ export async function fetchTrainServiceAlerts(accountKey?: string): Promise<Trai
  * - ServiceNo: optional string (e.g. "15")
  */
 export default async function handler(req: Request, res: Response) {
-  res.setHeader('Content-Type', 'application/json');
+  const endpoint = (
+    (req.query.endpoint as string) ||
+    (req.query.type as string) ||
+    (req.path.includes('nearby') ? 'nearby' : req.path.includes('correlat') ? 'correlate' : req.path.includes('traffic') ? 'traffic' : req.path.includes('train') ? 'train' : req.path.includes('arrival') ? 'arrival' : 'BusArrival')
+  ).toLowerCase();
+
+  // Nearby bus stops can be looked up from geographic coordinates directly
+  if (endpoint === 'nearby') {
+    const lat = parseFloat(req.query.lat as string) || 1.30155;
+    const lng = parseFloat(req.query.lng as string) || 103.90538;
+    const radius = parseFloat(req.query.radius as string) || 3.0;
+    const stops = findNearbyBusStops(lat, lng, radius);
+    return res.status(200).json({
+      success: true,
+      endpoint: 'nearby',
+      center: { lat, lng },
+      radiusKm: radius,
+      count: stops.length,
+      data: stops,
+    });
+  }
 
   const accountKey = getLtaAccountKey(req);
   if (!accountKey) {
@@ -410,12 +479,6 @@ export default async function handler(req: Request, res: Response) {
         'Register for an AccountKey at https://datamall.lta.gov.sg/content/datamall/en/request-api.html, then set LTA_DATAMALL_KEY in your server environment or pass the AccountKey header.',
     });
   }
-
-  const endpoint = (
-    (req.query.endpoint as string) ||
-    (req.query.type as string) ||
-    (req.path.includes('correlat') ? 'correlate' : req.path.includes('traffic') ? 'traffic' : req.path.includes('train') ? 'train' : req.path.includes('arrival') ? 'arrival' : 'BusArrival')
-  ).toLowerCase();
 
   const busStopCode = ((req.query.BusStopCode as string) || (req.query.busStopCode as string) || '83139').trim();
   const serviceNo = (req.query.ServiceNo as string) || (req.query.serviceNo as string) || undefined;
