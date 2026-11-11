@@ -23,18 +23,20 @@ import {
   AlertOctagon,
   Navigation,
   Compass,
-  Crosshair,
   Footprints,
   Clock,
   ArrowRight,
   Rss,
-  Layers,
-  Sparkles,
+  Filter,
+  Eye,
+  EyeOff,
+  AlertCircle,
 } from 'lucide-react';
 import {
   calculateDistanceKm,
   findNearbyBusStops,
   KNOWN_BUS_STOPS,
+  getAffectedServicesOnIncident,
   type BusArrivalData,
   type BusService,
   type NextBus,
@@ -64,69 +66,272 @@ interface CorrelatedImpact {
   severity: 'high' | 'medium' | 'low';
   target: 'bus_stop' | 'next_bus' | 'next_bus_2' | 'next_bus_3';
   summary: string;
+  affectedServices: string[];
 }
 
 interface CorrelatedService extends BusService {
   trafficImpact: {
     status: 'clear' | 'minor' | 'moderate' | 'severe';
-    delayRiskText?: string;
+    impactText?: string;
     closestDistanceKm?: number;
     impactedBy: CorrelatedImpact[];
   };
 }
 
+// Major Singapore location hubs for quick exploration
 const LOCATION_HUBS = [
+  { name: 'Bt Merah Int (10009)', lat: 1.28211, lng: 103.81722, defaultStop: '10009' },
   { name: 'Marine Parade (East)', lat: 1.30155, lng: 103.90538, defaultStop: '83139' },
   { name: 'Raffles Place / CBD', lat: 1.28549, lng: 103.84968, defaultStop: '04121' },
   { name: 'Orchard Road', lat: 1.30403, lng: 103.83307, defaultStop: '09048' },
   { name: 'Tampines Hub', lat: 1.35334, lng: 103.94523, defaultStop: '65009' },
-  { name: 'HarbourFront / VivoCity', lat: 1.26477, lng: 103.82236, defaultStop: '10009' },
+  { name: 'VivoCity (14119)', lat: 1.26530, lng: 103.82180, defaultStop: '14119' },
   { name: 'Jurong East Central', lat: 1.33315, lng: 103.74229, defaultStop: '28009' },
 ];
 
-const DEMO_INCIDENTS: TrafficIncident[] = [
+// Snapshot matching OneMotoring / LTA live checks report
+const SNAPSHOT_INCIDENTS: TrafficIncident[] = [
+  // 1. Critical bus route incidents
   {
     Type: 'Accident',
-    Latitude: 1.3045,
-    Longitude: 103.9082,
-    Message: '(Live) Accident on Marine Parade Rd (towards Bedok) after Still Rd South. Heavy queuing back to Parkway Parade.',
+    Latitude: 1.2985,
+    Longitude: 103.8012,
+    Message: '(11/11 10:06) Accident on Queensway (towards Lornie) after Commonwealth Drive.',
+  },
+  {
+    Type: 'Black Out',
+    Latitude: 1.3042,
+    Longitude: 103.8328,
+    Message: '(11/11 12:08) Black Out at Orchard Rd (Near ION Orchard). Traffic light failure at major junction.',
+  },
+  {
+    Type: 'Black Out',
+    Latitude: 1.3280,
+    Longitude: 103.7925,
+    Message: '(11/11 12:08) Black Out at Bt Timah Rd (Near Sixth Ave). Traffic light signals unserviceable.',
+  },
+  // 2. Distant expressway roadworks and breakdowns (unrelated to stop 10009)
+  {
+    Type: 'Roadwork',
+    Latitude: 1.3512,
+    Longitude: 103.8821,
+    Message: '(11/11 08:30) Roadwork on PIE (towards Changi Airport) before Bedok North Rd Exit. Avoid lane 1.',
   },
   {
     Type: 'Roadwork',
-    Latitude: 1.3090,
-    Longitude: 103.8995,
-    Message: '(Live) Roadwork on ECP (towards Changi Airport) before Marine Parade Exit. Right lane closed.',
+    Latitude: 1.3580,
+    Longitude: 103.9870,
+    Message: '(11/11 10:34) Roadwork on ECP (towards City) at T4 Way Entrance. Avoid left lane.',
+  },
+  {
+    Type: 'Roadwork',
+    Latitude: 1.3985,
+    Longitude: 103.9120,
+    Message: '(11/11 09:15) Roadwork on TPE (towards SLE) before Punggol Rd Exit.',
+  },
+  {
+    Type: 'Roadwork',
+    Latitude: 1.3780,
+    Longitude: 103.7450,
+    Message: '(11/11 09:40) Roadwork on KJE (towards BKE) at Choa Chu Kang Dr Exit.',
+  },
+  {
+    Type: 'Roadwork',
+    Latitude: 1.3650,
+    Longitude: 103.8560,
+    Message: '(11/11 10:10) Roadwork on CTE (towards AYE) after Ang Mo Kio Ave 1.',
   },
   {
     Type: 'Vehicle breakdown',
-    Latitude: 1.3082,
-    Longitude: 103.8340,
-    Message: '(Live) Vehicle breakdown on Orchard Rd after Paterson Rd. Center lane blocked.',
+    Latitude: 1.2720,
+    Longitude: 103.8580,
+    Message: '(11/11 11:15) Vehicle breakdown on MCE (towards AYE) before Marina Blvd Exit.',
+  },
+  {
+    Type: 'Heavy Traffic',
+    Latitude: 1.2910,
+    Longitude: 103.8620,
+    Message: '(11/11 11:30) Heavy Traffic on Sheares Avenue (towards ECP).',
+  },
+  {
+    Type: 'Roadwork',
+    Latitude: 1.3350,
+    Longitude: 103.7120,
+    Message: '(11/11 07:32) Roadwork on AYE (towards Tuas) after Jurong Pier Rd Exit.',
   },
 ];
 
-const DEMO_BUS_SERVICES: BusService[] = [
+// Demo bus arrivals for Bukit Merah Interchange (Stop 10009)
+const DEMO_BT_MERAH_SERVICES: BusService[] = [
+  {
+    ServiceNo: '123',
+    Operator: 'SBST',
+    NextBus: {
+      EstimatedArrival: new Date(Date.now() + 4 * 60000).toISOString(),
+      Load: 'SEA',
+      Feature: 'WAB',
+      Type: 'SD',
+    },
+    NextBus2: {
+      EstimatedArrival: new Date(Date.now() + 15 * 60000).toISOString(),
+      Load: 'SDA',
+      Feature: 'WAB',
+      Type: 'DD',
+    },
+  },
+  {
+    ServiceNo: '153',
+    Operator: 'SBST',
+    NextBus: {
+      EstimatedArrival: new Date(Date.now() + 6 * 60000).toISOString(),
+      Load: 'SEA',
+      Feature: 'WAB',
+      Type: 'DD',
+    },
+    NextBus2: {
+      EstimatedArrival: new Date(Date.now() + 18 * 60000).toISOString(),
+      Load: 'SEA',
+      Feature: 'WAB',
+      Type: 'DD',
+    },
+  },
+  {
+    ServiceNo: '75',
+    Operator: 'SMRT',
+    NextBus: {
+      EstimatedArrival: new Date(Date.now() + 8 * 60000).toISOString(),
+      Load: 'SDA',
+      Feature: 'WAB',
+      Type: 'SD',
+    },
+    NextBus2: {
+      EstimatedArrival: new Date(Date.now() + 21 * 60000).toISOString(),
+      Load: 'SEA',
+      Feature: 'WAB',
+      Type: 'SD',
+    },
+  },
+  {
+    ServiceNo: '5',
+    Operator: 'SBST',
+    NextBus: {
+      EstimatedArrival: new Date(Date.now() + 5 * 60000).toISOString(),
+      Load: 'SEA',
+      Feature: 'WAB',
+      Type: 'DD',
+    },
+    NextBus2: {
+      EstimatedArrival: new Date(Date.now() + 16 * 60000).toISOString(),
+      Load: 'LSD',
+      Feature: 'WAB',
+      Type: 'DD',
+    },
+  },
+  {
+    ServiceNo: '16',
+    Operator: 'SBST',
+    NextBus: {
+      EstimatedArrival: new Date(Date.now() + 9 * 60000).toISOString(),
+      Load: 'SEA',
+      Feature: 'WAB',
+      Type: 'SD',
+    },
+    NextBus2: {
+      EstimatedArrival: new Date(Date.now() + 22 * 60000).toISOString(),
+      Load: 'SEA',
+      Feature: 'WAB',
+      Type: 'SD',
+    },
+  },
+  {
+    ServiceNo: '131',
+    Operator: 'SBST',
+    NextBus: {
+      EstimatedArrival: new Date(Date.now() + 11 * 60000).toISOString(),
+      Load: 'SEA',
+      Feature: 'WAB',
+      Type: 'SD',
+    },
+    NextBus2: {
+      EstimatedArrival: new Date(Date.now() + 24 * 60000).toISOString(),
+      Load: 'SEA',
+      Feature: 'WAB',
+      Type: 'DD',
+    },
+  },
+  {
+    ServiceNo: '132',
+    Operator: 'SBST',
+    NextBus: {
+      EstimatedArrival: new Date(Date.now() + 7 * 60000).toISOString(),
+      Load: 'SDA',
+      Feature: 'WAB',
+      Type: 'DD',
+    },
+    NextBus2: {
+      EstimatedArrival: new Date(Date.now() + 19 * 60000).toISOString(),
+      Load: 'SEA',
+      Feature: 'WAB',
+      Type: 'DD',
+    },
+  },
+  {
+    ServiceNo: '167',
+    Operator: 'Tower Transit',
+    NextBus: {
+      EstimatedArrival: new Date(Date.now() + 13 * 60000).toISOString(),
+      Load: 'SEA',
+      Feature: 'WAB',
+      Type: 'SD',
+    },
+    NextBus2: {
+      EstimatedArrival: new Date(Date.now() + 26 * 60000).toISOString(),
+      Load: 'SEA',
+      Feature: 'WAB',
+      Type: 'SD',
+    },
+  },
+  {
+    ServiceNo: '198',
+    Operator: 'SBST',
+    NextBus: {
+      EstimatedArrival: new Date(Date.now() + 3 * 60000).toISOString(),
+      Load: 'SEA',
+      Feature: 'WAB',
+      Type: 'DD',
+    },
+    NextBus2: {
+      EstimatedArrival: new Date(Date.now() + 14 * 60000).toISOString(),
+      Load: 'SDA',
+      Feature: 'WAB',
+      Type: 'DD',
+    },
+  },
+  {
+    ServiceNo: '851',
+    Operator: 'SMRT',
+    NextBus: {
+      EstimatedArrival: new Date(Date.now() + 10 * 60000).toISOString(),
+      Load: 'SEA',
+      Feature: 'WAB',
+      Type: 'DD',
+    },
+  },
+];
+
+// Default demo services for Parkway Parade (Stop 83139)
+const DEMO_PARKWAY_SERVICES: BusService[] = [
   {
     ServiceNo: '15',
     Operator: 'GAS',
     NextBus: {
       EstimatedArrival: new Date(Date.now() + 14 * 60000).toISOString(),
-      Latitude: '1.3051',
-      Longitude: '103.9088',
       Load: 'LSD',
       Feature: 'WAB',
       Type: 'DD',
     },
     NextBus2: {
       EstimatedArrival: new Date(Date.now() + 24 * 60000).toISOString(),
-      Latitude: '1.3140',
-      Longitude: '103.9210',
-      Load: 'SEA',
-      Feature: 'WAB',
-      Type: 'SD',
-    },
-    NextBus3: {
-      EstimatedArrival: new Date(Date.now() + 38 * 60000).toISOString(),
       Load: 'SEA',
       Feature: 'WAB',
       Type: 'SD',
@@ -137,25 +342,15 @@ const DEMO_BUS_SERVICES: BusService[] = [
     Operator: 'GAS',
     NextBus: {
       EstimatedArrival: new Date(Date.now() + 3 * 60000).toISOString(),
-      Latitude: '1.3021',
-      Longitude: '103.9060',
       Load: 'SEA',
       Feature: 'WAB',
       Type: 'SD',
     },
     NextBus2: {
       EstimatedArrival: new Date(Date.now() + 16 * 60000).toISOString(),
-      Latitude: '1.3075',
-      Longitude: '103.9070',
       Load: 'SDA',
       Feature: 'WAB',
       Type: 'DD',
-    },
-    NextBus3: {
-      EstimatedArrival: new Date(Date.now() + 28 * 60000).toISOString(),
-      Load: 'SEA',
-      Feature: 'WAB',
-      Type: 'SD',
     },
   },
   {
@@ -163,95 +358,35 @@ const DEMO_BUS_SERVICES: BusService[] = [
     Operator: 'SBST',
     NextBus: {
       EstimatedArrival: new Date(Date.now() + 7 * 60000).toISOString(),
-      Latitude: '1.3028',
-      Longitude: '103.9068',
       Load: 'SDA',
       Feature: 'WAB',
       Type: 'DD',
-    },
-    NextBus2: {
-      EstimatedArrival: new Date(Date.now() + 19 * 60000).toISOString(),
-      Latitude: '1.3080',
-      Longitude: '103.9100',
-      Load: 'LSD',
-      Feature: 'WAB',
-      Type: 'DD',
-    },
-    NextBus3: {
-      EstimatedArrival: new Date(Date.now() + 31 * 60000).toISOString(),
-      Load: 'SEA',
-      Feature: 'WAB',
-      Type: 'SD',
-    },
-  },
-  {
-    ServiceNo: '48',
-    Operator: 'SBST',
-    NextBus: {
-      EstimatedArrival: new Date(Date.now() + 2 * 60000).toISOString(),
-      Latitude: '1.3018',
-      Longitude: '103.9056',
-      Load: 'SEA',
-      Feature: 'WAB',
-      Type: 'SD',
-    },
-    NextBus2: {
-      EstimatedArrival: new Date(Date.now() + 12 * 60000).toISOString(),
-      Latitude: '1.2980',
-      Longitude: '103.8920',
-      Load: 'SEA',
-      Feature: 'WAB',
-      Type: 'DD',
-    },
-    NextBus3: {
-      EstimatedArrival: new Date(Date.now() + 25 * 60000).toISOString(),
-      Load: 'SEA',
-      Feature: 'WAB',
-      Type: 'SD',
-    },
-  },
-  {
-    ServiceNo: '31',
-    Operator: 'SBST',
-    NextBus: {
-      EstimatedArrival: new Date(Date.now() + 18 * 60000).toISOString(),
-      Latitude: '1.3060',
-      Longitude: '103.9090',
-      Load: 'LSD',
-      Feature: 'WAB',
-      Type: 'DD',
-    },
-    NextBus2: {
-      EstimatedArrival: new Date(Date.now() + 32 * 60000).toISOString(),
-      Load: 'SEA',
-      Feature: 'WAB',
-      Type: 'SD',
     },
   },
 ];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'nearby' | 'buses' | 'traffic' | 'trains' | 'rss'>('nearby');
-  const [busStopCode, setBusStopCode] = useState('83139');
-  const [busStopInput, setBusStopInput] = useState('83139');
+  const [busStopCode, setBusStopCode] = useState('10009'); // Default to Bt Merah Int per user request
+  const [busStopInput, setBusStopInput] = useState('10009');
   const [serviceFilter, setServiceFilter] = useState('');
   const [trafficSearch, setTrafficSearch] = useState('');
   const [sessionKey, setSessionKey] = useState('');
   const [showKeyModal, setShowKeyModal] = useState(false);
-  const [filterImpactedOnly, setFilterImpactedOnly] = useState(false);
+  const [filterRouteOnly, setFilterRouteOnly] = useState(true); // Filter to stop's bus routes by default
   const [expandedServices, setExpandedServices] = useState<Record<string, boolean>>({});
   const [demoMode, setDemoMode] = useState(false);
 
   // User surroundings & geolocation state
   const [userLocation, setUserLocation] = useState({
-    lat: 1.30155,
-    lng: 103.90538,
-    name: 'Marine Parade (East)',
+    lat: 1.28211,
+    lng: 103.81722,
+    name: 'Bt Merah Int (10009)',
     isRealGps: false,
   });
   const [isLocating, setIsLocating] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
-  const [nearbyRadiusKm, setNearbyRadiusKm] = useState(1.2); // 1.2km radius (~15 min walk)
+  const [nearbyRadiusKm, setNearbyRadiusKm] = useState(1.2);
 
   // Data states
   const [healthData, setHealthData] = useState<HealthResponse | null>(null);
@@ -299,7 +434,7 @@ export default function App() {
       },
       (err) => {
         console.warn('Geolocation error:', err);
-        setGpsError('Location access was denied or timed out. Switched to default central location.');
+        setGpsError('Location access was denied or timed out. Set to Bukit Merah corridor.');
         setIsLocating(false);
       },
       { enableHighAccuracy: true, timeout: 8000 }
@@ -318,7 +453,7 @@ export default function App() {
     setGpsError(null);
   };
 
-  // Calculate nearby bus stops based on user position
+  // Nearby bus stops calculated based on user location
   const nearbyBusStops = useMemo(() => {
     return findNearbyBusStops(userLocation.lat, userLocation.lng, nearbyRadiusKm);
   }, [userLocation, nearbyRadiusKm]);
@@ -341,7 +476,7 @@ export default function App() {
     if (demoMode) {
       setBusData({
         BusStopCode: stopCode,
-        Services: DEMO_BUS_SERVICES,
+        Services: stopCode === '10009' ? DEMO_BT_MERAH_SERVICES : DEMO_PARKWAY_SERVICES,
       });
       return;
     }
@@ -353,9 +488,10 @@ export default function App() {
 
       if (!res.ok) {
         if (json.error === 'MISSING_API_KEY') {
+          // Provide appropriate snapshot demo services for the stop
           setBusData({
             BusStopCode: stopCode,
-            Services: DEMO_BUS_SERVICES,
+            Services: stopCode === '10009' ? DEMO_BT_MERAH_SERVICES : DEMO_PARKWAY_SERVICES,
           });
         } else {
           setErrorMsg(json.message || 'Failed to fetch bus arrival data.');
@@ -374,7 +510,7 @@ export default function App() {
   // Fetch Traffic Incidents
   const fetchTraffic = useCallback(async () => {
     if (demoMode) {
-      setTrafficData(DEMO_INCIDENTS);
+      setTrafficData(SNAPSHOT_INCIDENTS);
       return;
     }
     try {
@@ -385,13 +521,13 @@ export default function App() {
 
       if (res.ok && json.data) {
         const val = json.data.value || [];
-        setTrafficData(val.length > 0 ? val : DEMO_INCIDENTS);
+        setTrafficData(val.length > 0 ? val : SNAPSHOT_INCIDENTS);
       } else {
-        setTrafficData(DEMO_INCIDENTS);
+        setTrafficData(SNAPSHOT_INCIDENTS);
       }
     } catch (err) {
       console.error('Traffic fetch error', err);
-      setTrafficData(DEMO_INCIDENTS);
+      setTrafficData(SNAPSHOT_INCIDENTS);
     }
   }, [getHeaders, demoMode]);
 
@@ -456,7 +592,7 @@ export default function App() {
     setActiveTab('buses');
   };
 
-  // Current stop coordinates & metadata
+  // Current stop coordinates & metadata (e.g. 10009 -> Bt Merah Int)
   const currentStopMeta = useMemo(() => {
     const known = KNOWN_BUS_STOPS[busStopCode];
     if (known) return known;
@@ -479,141 +615,130 @@ export default function App() {
     return { distKm, distM, walkMin };
   }, [userLocation, currentStopMeta]);
 
-  // Traffic <-> Bus Arrival Correlation Engine
-  const { correlatedServices, stopIncidents, corridorSummary, corridorStatus } = useMemo(() => {
-    const activeIncidents = trafficData.length > 0 ? trafficData : DEMO_INCIDENTS;
+  // Correlate Incidents with Stop Routes
+  const {
+    correlatedServices,
+    relevantRouteIncidents,
+    allIncidentsWithRouteMatch,
+    corridorSummary,
+    corridorStatus,
+  } = useMemo(() => {
+    const activeIncidents = trafficData.length > 0 ? trafficData : SNAPSHOT_INCIDENTS;
     const services = busData?.Services || [];
+    const stopServices = currentStopMeta.services || [];
 
-    // Find incidents near the bus stop corridor (within 3km)
-    const stopNearIncidents: CorrelatedImpact[] = [];
-    for (const inc of activeIncidents) {
-      if (inc.Latitude && inc.Longitude) {
-        const dist = calculateDistanceKm(currentStopMeta.lat, currentStopMeta.lng, inc.Latitude, inc.Longitude);
-        if (dist <= 3.0) {
-          const isHigh = inc.Type.toLowerCase().includes('accident') || inc.Type.toLowerCase().includes('closure');
-          const isMed = inc.Type.toLowerCase().includes('roadwork') || inc.Type.toLowerCase().includes('heavy traffic');
-          const severity = dist <= 1.2 && isHigh ? 'high' : dist <= 2.0 && (isHigh || isMed) ? 'medium' : 'low';
+    // Tag every incident with affected services from this stop
+    const processedIncidents = activeIncidents.map((inc) => {
+      const affected = getAffectedServicesOnIncident(inc.Message, stopServices);
+      const dist = inc.Latitude && inc.Longitude
+        ? calculateDistanceKm(currentStopMeta.lat, currentStopMeta.lng, inc.Latitude, inc.Longitude)
+        : 99;
 
-          stopNearIncidents.push({
-            incident: inc,
-            distanceKm: dist,
-            severity,
-            target: 'bus_stop',
-            summary: `${inc.Type} ~${dist.toFixed(1)}km from stop: ${inc.Message}`,
-          });
-        }
-      }
-    }
+      // Incident is relevant if it affects a bus service from this stop OR is within 2.0km of this stop
+      const isRelevant = affected.length > 0 || dist <= 2.0;
 
-    // Correlate each bus service and its live vehicles
+      return {
+        ...inc,
+        affectedServices: affected,
+        distanceKm: dist,
+        isRelevant,
+      };
+    });
+
+    const relevant = processedIncidents.filter((inc) => inc.isRelevant);
+
+    // Correlate each bus service with incidents on its route
     const correlated: CorrelatedService[] = services.map((svc) => {
       const impacts: CorrelatedImpact[] = [];
 
-      const checkBus = (bus: NextBus | undefined, target: 'next_bus' | 'next_bus_2' | 'next_bus_3') => {
-        if (!bus || !bus.Latitude || !bus.Longitude) return;
-        const bLat = parseFloat(bus.Latitude);
-        const bLng = parseFloat(bus.Longitude);
-        if (isNaN(bLat) || isNaN(bLng) || bLat <= 1.0 || bLng <= 100.0) return;
+      for (const inc of processedIncidents) {
+        if (inc.affectedServices.includes(svc.ServiceNo) || inc.distanceKm <= 1.5) {
+          const isHigh = inc.Type.toLowerCase().includes('accident') || inc.Type.toLowerCase().includes('black out') || inc.Type.toLowerCase().includes('closure');
+          const isMed = inc.Type.toLowerCase().includes('roadwork') || inc.Type.toLowerCase().includes('heavy traffic');
+          const severity = isHigh ? 'high' : isMed ? 'medium' : 'low';
 
-        for (const inc of activeIncidents) {
-          if (!inc.Latitude || !inc.Longitude) continue;
-          const dist = calculateDistanceKm(bLat, bLng, inc.Latitude, inc.Longitude);
-          if (dist <= 2.5) {
-            const isHigh = inc.Type.toLowerCase().includes('accident') || inc.Type.toLowerCase().includes('closure');
-            const isMed = inc.Type.toLowerCase().includes('roadwork') || inc.Type.toLowerCase().includes('heavy traffic');
-            const severity = dist <= 0.8 && isHigh ? 'high' : dist <= 1.8 && (isHigh || isMed) ? 'medium' : 'low';
-
-            impacts.push({
-              incident: inc,
-              distanceKm: dist,
-              severity,
-              target,
-              summary: `${inc.Type} ${dist.toFixed(1)}km from approaching bus: ${inc.Message}`,
-            });
-          }
-        }
-      };
-
-      checkBus(svc.NextBus, 'next_bus');
-      checkBus(svc.NextBus2, 'next_bus_2');
-      checkBus(svc.NextBus3, 'next_bus_3');
-
-      // Include stop incidents within 1.5km
-      for (const stopInc of stopNearIncidents) {
-        if (stopInc.distanceKm <= 1.5 && !impacts.some((i) => i.incident.Message === stopInc.incident.Message)) {
-          impacts.push(stopInc);
+          impacts.push({
+            incident: inc,
+            distanceKm: inc.distanceKm,
+            severity,
+            target: 'bus_stop',
+            summary: `${inc.Type}: ${inc.Message}`,
+            affectedServices: inc.affectedServices,
+          });
         }
       }
 
-      impacts.sort((a, b) => a.distanceKm - b.distanceKm);
-
       let status: 'clear' | 'minor' | 'moderate' | 'severe' = 'clear';
-      let delayRiskText: string | undefined = undefined;
+      let impactText: string | undefined = undefined;
 
       if (impacts.some((i) => i.severity === 'high')) {
         status = 'severe';
         const worst = impacts.find((i) => i.severity === 'high')!;
-        delayRiskText = `Severe Delay (+8–15m): ${worst.incident.Type} ~${worst.distanceKm.toFixed(1)}km away`;
+        impactText = `${worst.incident.Type} reported on service corridor`;
       } else if (impacts.some((i) => i.severity === 'medium')) {
         status = 'moderate';
         const worst = impacts.find((i) => i.severity === 'medium')!;
-        delayRiskText = `Moderate Delay (+4–8m): ${worst.incident.Type} ~${worst.distanceKm.toFixed(1)}km away`;
+        impactText = `${worst.incident.Type} reported on service corridor`;
       } else if (impacts.length > 0) {
         status = 'minor';
-        delayRiskText = `Advisory: ${impacts[0].incident.Type} within ~${impacts[0].distanceKm.toFixed(1)}km`;
+        impactText = `${impacts[0].incident.Type} in corridor vicinity`;
       }
 
       return {
         ...svc,
         trafficImpact: {
           status,
-          delayRiskText,
+          impactText,
           closestDistanceKm: impacts[0]?.distanceKm,
           impactedBy: impacts,
         },
       };
     });
 
-    const hasSevere = correlated.some((s) => s.trafficImpact.status === 'severe') || stopNearIncidents.some((i) => i.severity === 'high');
-    const hasModerate = correlated.some((s) => s.trafficImpact.status === 'moderate') || stopNearIncidents.some((i) => i.severity === 'medium');
-    const hasMinor = correlated.some((s) => s.trafficImpact.status === 'minor') || stopNearIncidents.length > 0;
+    const hasSevere = correlated.some((s) => s.trafficImpact.status === 'severe') || relevant.some((i) => i.Type.toLowerCase().includes('accident') || i.Type.toLowerCase().includes('black out'));
+    const hasModerate = correlated.some((s) => s.trafficImpact.status === 'moderate') || relevant.length > 0;
 
     const overallStatus: 'clear' | 'minor' | 'moderate' | 'severe' = hasSevere
       ? 'severe'
       : hasModerate
       ? 'moderate'
-      : hasMinor
-      ? 'minor'
       : 'clear';
 
-    let summary = 'Corridor Clear: No traffic incidents detected within 3km of this stop or arriving buses.';
+    let summary = 'Corridor Clear: No traffic incidents or roadworks detected along the routes used by this stop.';
     if (overallStatus === 'severe') {
-      summary = `Severe Bottleneck: Major accidents or road closures reported on incoming corridors. Buses facing delays.`;
+      summary = `${relevant.length} incident(s) reported on routes used by buses from Stop #${busStopCode}. Passengers may experience delays.`;
     } else if (overallStatus === 'moderate') {
-      summary = `Moderate Congestion: Roadworks or traffic queues within 2km. Minor delay risk.`;
-    } else if (overallStatus === 'minor') {
-      summary = `Minor Advisory: Incidents reported in the surrounding 3km area.`;
+      summary = `${relevant.length} roadwork(s) or traffic advisory reported on routes used by buses from Stop #${busStopCode}.`;
     }
 
     return {
       correlatedServices: correlated,
-      stopIncidents: stopNearIncidents,
+      relevantRouteIncidents: relevant,
+      allIncidentsWithRouteMatch: processedIncidents,
       corridorSummary: summary,
       corridorStatus: overallStatus,
     };
   }, [trafficData, busData, currentStopMeta]);
 
-  // Filtering services
+  // Displayed incidents based on route filter toggle
+  const displayedIncidents = useMemo(() => {
+    let list = filterRouteOnly ? relevantRouteIncidents : allIncidentsWithRouteMatch;
+    if (trafficSearch.trim()) {
+      const q = trafficSearch.toLowerCase();
+      list = list.filter((i) => i.Message.toLowerCase().includes(q) || i.Type.toLowerCase().includes(q));
+    }
+    return list;
+  }, [filterRouteOnly, relevantRouteIncidents, allIncidentsWithRouteMatch, trafficSearch]);
+
+  // Filter bus services by serviceFilter
   const displayedServices = useMemo(() => {
-    return correlatedServices.filter((svc) => {
-      const matchesSearch = !serviceFilter || svc.ServiceNo.toLowerCase().includes(serviceFilter.toLowerCase());
-      if (!matchesSearch) return false;
-      if (filterImpactedOnly) {
-        return svc.trafficImpact.status !== 'clear';
-      }
-      return true;
-    });
-  }, [correlatedServices, serviceFilter, filterImpactedOnly]);
+    let list = correlatedServices;
+    if (serviceFilter.trim()) {
+      const q = serviceFilter.trim().toLowerCase();
+      list = list.filter((s) => s.ServiceNo.toLowerCase().includes(q));
+    }
+    return list;
+  }, [correlatedServices, serviceFilter]);
 
   const toggleServiceExpand = (serviceNo: string) => {
     setExpandedServices((prev) => ({
@@ -638,20 +763,6 @@ export default function App() {
     return { minutes: `${diffMins} min`, exact, status: 'normal' };
   };
 
-  // Helper to determine if an incident is near a given stop
-  const getStopIncidentWarning = (stopLat: number, stopLng: number) => {
-    const active = trafficData.length > 0 ? trafficData : DEMO_INCIDENTS;
-    for (const inc of active) {
-      if (inc.Latitude && inc.Longitude) {
-        const d = calculateDistanceKm(stopLat, stopLng, inc.Latitude, inc.Longitude);
-        if (d <= 1.5) {
-          return { hasWarning: true, type: inc.Type, distanceKm: d };
-        }
-      }
-    }
-    return { hasWarning: false, type: '', distanceKm: 0 };
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans antialiased selection:bg-emerald-600 selection:text-white">
       {/* Top Header Navigation */}
@@ -671,18 +782,17 @@ export default function App() {
                 <div className="text-xs text-slate-500 dark:text-slate-400 hidden sm:flex items-center gap-1.5">
                   <span>LTA DataMall v3</span>
                   <span aria-hidden="true">·</span>
-                  <span>Surroundings & Incident Intelligence</span>
+                  <span>Stop Route Corridors</span>
                 </div>
               </div>
             </div>
 
-            {/* Quick Actions (GPS Locate Me, Key, Refresh) */}
+            {/* Quick Actions (GPS Locate Me, Demo, Key, Refresh) */}
             <div className="flex items-center gap-2 sm:gap-3">
-              {/* GPS Locate Me Button */}
               <button
                 onClick={handleLocateMe}
                 disabled={isLocating}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition shadow-sm"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 transition shadow-sm"
                 title="Detect GPS location and show nearby bus stops"
               >
                 <Compass className={`w-4 h-4 ${isLocating ? 'animate-spin text-emerald-500' : ''}`} />
@@ -690,7 +800,6 @@ export default function App() {
                 <span className="sm:hidden">GPS</span>
               </button>
 
-              {/* Demo Mode Toggle */}
               <button
                 onClick={() => setDemoMode(!demoMode)}
                 className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-semibold border transition ${
@@ -698,13 +807,12 @@ export default function App() {
                     ? 'bg-purple-100 dark:bg-purple-950/80 border-purple-300 text-purple-700 dark:text-purple-300'
                     : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
                 }`}
-                title="Toggle simulated live traffic incident data"
+                title="Toggle simulated snapshot data"
               >
                 <Zap className="w-3.5 h-3.5 text-purple-500" />
-                <span className="hidden md:inline">Simulate</span>
+                <span className="hidden md:inline">Snapshot</span>
               </button>
 
-              {/* AccountKey Indicator */}
               <button
                 onClick={() => setShowKeyModal(true)}
                 className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-medium border transition ${
@@ -726,7 +834,6 @@ export default function App() {
                 )}
               </button>
 
-              {/* Manual Refresh Button */}
               <button
                 onClick={refreshAll}
                 disabled={isLoading}
@@ -738,7 +845,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Segmented Navigation Bar */}
+          {/* Segmented Navigation Tabs */}
           <nav className="flex space-x-1 sm:space-x-3 border-t border-slate-200 dark:border-slate-800 -mb-px overflow-x-auto py-1">
             <button
               onClick={() => setActiveTab('nearby')}
@@ -762,9 +869,11 @@ export default function App() {
               }`}
             >
               <Bus className="w-4 h-4" />
-              <span>Live Arrivals (#{busStopCode})</span>
-              {stopIncidents.length > 0 && (
-                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+              <span>Live Arrivals (#{busStopCode} - {currentStopMeta.name})</span>
+              {relevantRouteIncidents.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+                  {relevantRouteIncidents.length} on route
+                </span>
               )}
             </button>
 
@@ -778,7 +887,9 @@ export default function App() {
             >
               <Car className="w-4 h-4" />
               <span>Traffic Incidents</span>
-              <span className="text-[11px] font-mono text-slate-400">({trafficData.length})</span>
+              <span className="text-[11px] font-mono text-slate-400">
+                ({filterRouteOnly ? `${relevantRouteIncidents.length} on route` : allIncidentsWithRouteMatch.length})
+              </span>
             </button>
 
             <button
@@ -810,64 +921,12 @@ export default function App() {
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* AccountKey Alert Banner if missing */}
-        {!isConfigured && !demoMode && (
-          <div className="mb-6 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-4 sm:p-5">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-400 shrink-0">
-                  <ShieldAlert className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-amber-900 dark:text-amber-200">
-                    Live Datamall AccountKey Not Yet Configured
-                  </h3>
-                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-1 leading-relaxed">
-                    Set <code className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900 font-mono">LTA_DATAMALL_KEY</code> in <code className="font-mono">.env</code>, or click <strong>Simulate</strong> to test surroundings awareness and correlation immediately.
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2 shrink-0">
-                <button
-                  onClick={() => setDemoMode(true)}
-                  className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold shadow-sm transition"
-                >
-                  Turn On Demo
-                </button>
-                <button
-                  onClick={() => setShowKeyModal(true)}
-                  className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-sm transition"
-                >
-                  Enter AccountKey
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* GPS Error alert if any */}
-        {gpsError && (
-          <div className="mb-6 p-4 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300 text-xs flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <MapPin className="w-4 h-4 shrink-0 text-blue-500" />
-              <span>{gpsError}</span>
-            </div>
-            <button
-              onClick={() => setGpsError(null)}
-              className="text-blue-600 hover:text-blue-800 font-bold ml-4"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
         {/* TAB 1: NEARBY BUS STOPS (SURROUNDINGS AWARENESS) */}
         {activeTab === 'nearby' && (
           <div className="space-y-6">
             {/* Surroundings Control Bar */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                {/* Current Location Display */}
                 <div className="flex items-start sm:items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-200 dark:border-emerald-800">
                     <Compass className="w-5 h-5" />
@@ -878,7 +937,7 @@ export default function App() {
                         {userLocation.name}
                       </span>
                       {userLocation.isRealGps && (
-                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-800">
+                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-300">
                           Live GPS
                         </span>
                       )}
@@ -889,7 +948,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Walking Radius Filter */}
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-slate-400 font-medium hidden sm:inline">Walking Radius:</span>
                   <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -933,87 +991,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Surroundings Spatial Radar / Map */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <Radio className="w-4 h-4 text-emerald-500" />
-                    Surroundings Radar
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Real-time distance to bus stops and corridor traffic conditions from your position
-                  </p>
-                </div>
-                <div className="text-xs text-slate-400 font-medium">
-                  {nearbyBusStops.length} stops within {nearbyRadiusKm}km
-                </div>
-              </div>
-
-              {/* Visual Radar Canvas */}
-              <div className="relative w-full h-64 sm:h-72 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-center overflow-hidden">
-                {/* Distance Rings */}
-                <div className="absolute w-[90px] h-[90px] rounded-full border border-emerald-500/20"></div>
-                <div className="absolute w-[180px] h-[180px] rounded-full border border-emerald-500/15"></div>
-                <div className="absolute w-[260px] h-[260px] rounded-full border border-emerald-500/10"></div>
-
-                {/* Distance Labels */}
-                <span className="absolute top-[48%] left-[calc(50%+50px)] text-[9px] font-mono text-emerald-400/60">300m</span>
-                <span className="absolute top-[48%] left-[calc(50%+95px)] text-[9px] font-mono text-emerald-400/60">700m</span>
-                <span className="absolute top-[48%] left-[calc(50%+135px)] text-[9px] font-mono text-emerald-400/60">1.2km</span>
-
-                {/* Center: User Location */}
-                <div className="relative z-10 flex flex-col items-center">
-                  <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/40 ring-4 ring-emerald-500/20 animate-pulse">
-                    <Footprints className="w-4 h-4" />
-                  </div>
-                  <span className="text-[10px] font-bold text-emerald-300 bg-slate-900/90 px-2 py-0.5 rounded-full mt-1 border border-emerald-500/40">
-                    You Are Here
-                  </span>
-                </div>
-
-                {/* Nearby Bus Stops Plotted */}
-                {nearbyBusStops.slice(0, 8).map((stop, idx) => {
-                  const angle = (idx * 45 + 20) * (Math.PI / 180);
-                  const radius = Math.min(125, Math.max(35, (stop.distanceMeters / (nearbyRadiusKm * 1000)) * 120));
-                  const x = Math.cos(angle) * radius;
-                  const y = Math.sin(angle) * radius;
-
-                  const warning = getStopIncidentWarning(stop.lat, stop.lng);
-
-                  return (
-                    <div
-                      key={stop.code}
-                      onClick={() => handleSelectNearbyStop(stop)}
-                      style={{ transform: `translate(${x}px, ${y}px)` }}
-                      className="absolute z-10 flex flex-col items-center group cursor-pointer transition hover:scale-110"
-                    >
-                      <div
-                        className={`w-6 h-6 rounded-full flex items-center justify-center text-white shadow-md ${
-                          warning.hasWarning ? 'bg-amber-500 ring-2 ring-amber-300' : 'bg-indigo-600 ring-2 ring-indigo-400/40'
-                        }`}
-                      >
-                        <Bus className="w-3 h-3" />
-                      </div>
-                      <span className="text-[9px] font-bold font-mono text-slate-200 bg-slate-900/95 px-1.5 py-0.2 rounded border border-slate-700 mt-0.5">
-                        #{stop.code} ({stop.distanceMeters}m)
-                      </span>
-
-                      {/* Tooltip on hover */}
-                      <div className="hidden group-hover:block absolute bottom-8 bg-slate-900 text-white p-2.5 rounded-xl text-xs border border-slate-700 shadow-2xl z-30 whitespace-nowrap">
-                        <div className="font-bold">{stop.name}</div>
-                        <div className="text-[10px] text-slate-400">{stop.road} · ~{stop.walkingMinutes} min walk</div>
-                        <div className="text-[10px] text-emerald-400 mt-1">Services: {stop.services.slice(0, 5).join(', ')}...</div>
-                        {warning.hasWarning && (
-                          <div className="text-[10px] text-amber-400 font-bold mt-0.5">⚠️ {warning.type} nearby</div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
             {/* Nearby Bus Stops Cards Grid */}
             <div className="space-y-3">
               <div className="flex items-center justify-between px-1">
@@ -1021,15 +998,13 @@ export default function App() {
                   Bus Stops within Walking Distance ({nearbyBusStops.length})
                 </h3>
                 <span className="text-xs text-slate-400">
-                  Click any stop to view live arriving buses
+                  Click any stop to view live arriving buses and route incidents
                 </span>
               </div>
 
               {nearbyBusStops.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {nearbyBusStops.map((stop) => {
-                    const warning = getStopIncidentWarning(stop.lat, stop.lng);
-
                     return (
                       <div
                         key={stop.code}
@@ -1037,7 +1012,6 @@ export default function App() {
                         className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm hover:border-emerald-400 dark:hover:border-emerald-600 transition-all cursor-pointer flex flex-col justify-between group"
                       >
                         <div>
-                          {/* Card Header: Stop Code & Walking Metric */}
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-sm font-black font-mono text-emerald-600 dark:text-emerald-400">
                               #{stop.code}
@@ -1050,7 +1024,6 @@ export default function App() {
                             </div>
                           </div>
 
-                          {/* Stop Name & Road */}
                           <h4 className="text-base font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 transition-colors">
                             {stop.name}
                           </h4>
@@ -1058,23 +1031,9 @@ export default function App() {
                             {stop.road}
                           </p>
 
-                          {/* Traffic Warning Indicator if near an incident */}
-                          {warning.hasWarning ? (
-                            <div className="mt-3 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-[11px] font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                              <span>Corridor Alert: {warning.type} ~{warning.distanceKm.toFixed(1)}km away</span>
-                            </div>
-                          ) : (
-                            <div className="mt-3 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Corridor Clear</span>
-                            </div>
-                          )}
-
-                          {/* Available Services */}
                           <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80">
                             <div className="text-[11px] font-medium text-slate-400 mb-1.5">
-                              Calling Bus Services:
+                              Bus Services:
                             </div>
                             <div className="flex flex-wrap gap-1 text-xs">
                               {stop.services.map((svc) => (
@@ -1089,7 +1048,6 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* Action Link */}
                         <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs font-bold text-emerald-600 dark:text-emerald-400">
                           <span>View Live Arrivals</span>
                           <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
@@ -1104,9 +1062,6 @@ export default function App() {
                   <h4 className="text-base font-bold text-slate-800 dark:text-slate-200">
                     No Bus Stops Found Within {nearbyRadiusKm}km
                   </h4>
-                  <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-                    Try expanding your walking radius to 2.5km or pick one of the central Singapore hubs above.
-                  </p>
                   <button
                     onClick={() => setNearbyRadiusKm(2.5)}
                     className="mt-4 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition"
@@ -1132,7 +1087,7 @@ export default function App() {
                       type="text"
                       value={busStopInput}
                       onChange={(e) => setBusStopInput(e.target.value)}
-                      placeholder="Enter Stop Code (e.g. 83139, 04121)"
+                      placeholder="Enter Stop Code (e.g. 10009, 83139, 04121)"
                       className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono font-medium"
                     />
                   </div>
@@ -1144,56 +1099,38 @@ export default function App() {
                   </button>
                 </form>
 
-                {/* Filters */}
-                <div className="flex items-center gap-2 w-full lg:w-auto">
-                  <div className="relative flex-1 sm:w-56">
-                    <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-                    <input
-                      type="text"
-                      value={serviceFilter}
-                      onChange={(e) => setServiceFilter(e.target.value)}
-                      placeholder="Filter bus number (e.g. 15)"
-                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-
-                  <button
-                    onClick={() => setFilterImpactedOnly(!filterImpactedOnly)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition ${
-                      filterImpactedOnly
-                        ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-300 text-rose-700 dark:text-rose-300'
-                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100'
-                    }`}
-                  >
-                    <SlidersHorizontal className="w-3.5 h-3.5" />
-                    <span>{filterImpactedOnly ? 'Showing Delayed Only' : 'Filter Delayed'}</span>
-                  </button>
+                {/* Filter bus numbers */}
+                <div className="relative w-full lg:w-64">
+                  <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={serviceFilter}
+                    onChange={(e) => setServiceFilter(e.target.value)}
+                    placeholder="Filter service (e.g. 123)"
+                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
                 </div>
               </div>
 
-              {/* Stop Information & Distance from user */}
+              {/* Stop Identification & Metadata */}
               <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-800 dark:text-slate-200">
-                    {currentStopMeta.name} ({currentStopMeta.road})
+                  <span className="font-bold text-slate-900 dark:text-white text-sm">
+                    #{currentStopMeta.code} · {currentStopMeta.name}
                   </span>
                   <span aria-hidden="true" className="text-slate-400">·</span>
                   <span className="text-slate-500">
-                    ~{distanceToCurrentStop.distM} m from your position ({distanceToCurrentStop.walkMin} min walk)
+                    {currentStopMeta.road} ({currentStopMeta.neighborhood})
                   </span>
                 </div>
 
-                <button
-                  onClick={() => setActiveTab('nearby')}
-                  className="text-emerald-600 dark:text-emerald-400 hover:underline font-bold flex items-center gap-1"
-                >
-                  <Compass className="w-3.5 h-3.5" />
-                  <span>Switch to other nearby stops</span>
-                </button>
+                <div className="text-slate-400">
+                  {currentStopMeta.services.length} calling services: {currentStopMeta.services.join(', ')}
+                </div>
               </div>
             </div>
 
-            {/* CORRIDOR TRAFFIC CORRELATION STATUS BANNER */}
+            {/* CORRIDOR ROUTE IMPACT BANNER */}
             <div
               className={`rounded-2xl border p-5 transition-all shadow-sm ${
                 corridorStatus === 'severe'
@@ -1208,7 +1145,7 @@ export default function App() {
                   <div
                     className={`p-2.5 rounded-xl shadow-sm shrink-0 ${
                       corridorStatus === 'severe'
-                        ? 'bg-rose-500 text-white animate-bounce'
+                        ? 'bg-rose-500 text-white'
                         : corridorStatus === 'moderate'
                         ? 'bg-amber-500 text-white'
                         : 'bg-emerald-500 text-white'
@@ -1226,7 +1163,7 @@ export default function App() {
                     <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-400">
                       <span>Corridor Intelligence</span>
                       <span aria-hidden="true">·</span>
-                      <span>Stop #{busStopCode}</span>
+                      <span>Stop #{busStopCode} ({currentStopMeta.name})</span>
                     </div>
                     <p className="text-sm font-semibold mt-1 text-slate-800 dark:text-slate-100">
                       {corridorSummary}
@@ -1234,48 +1171,45 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 shrink-0">
-                  <div className="text-right">
-                    <div className="text-[11px] font-medium text-slate-400">Corridor Incidents</div>
-                    <div className="text-base font-bold font-mono text-slate-800 dark:text-slate-100">
-                      {stopIncidents.length} in 3km
-                    </div>
-                  </div>
-                </div>
+                <button
+                  onClick={() => setActiveTab('traffic')}
+                  className="shrink-0 px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:border-emerald-500 transition shadow-sm"
+                >
+                  View Route Incidents ({relevantRouteIncidents.length})
+                </button>
               </div>
 
-              {/* Specific incidents near this stop */}
-              {stopIncidents.length > 0 && (
+              {/* Relevant Incidents on this Stop's Routes */}
+              {relevantRouteIncidents.length > 0 && (
                 <div className="mt-4 pt-3 border-t border-black/5 dark:border-white/5 space-y-2">
-                  <div className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                    <AlertOctagon className="w-3.5 h-3.5 text-rose-500" />
-                    <span>Active Bottlenecks along incoming routes:</span>
+                  <div className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Incidents on Roads Used by Buses from Stop #{busStopCode}:
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {stopIncidents.map((imp, idx) => (
+                    {relevantRouteIncidents.map((imp, idx) => (
                       <div
                         key={idx}
-                        className="bg-white/80 dark:bg-slate-900/80 rounded-xl p-2.5 border border-black/5 dark:border-white/5 text-xs flex items-start justify-between gap-2"
+                        className="bg-white/90 dark:bg-slate-900/90 rounded-xl p-3 border border-black/5 dark:border-white/5 text-xs"
                       >
-                        <div>
-                          <div className="flex items-center gap-1.5 font-bold">
-                            <span
-                              className={`px-1.5 py-0.2 rounded text-[10px] ${
-                                imp.severity === 'high'
-                                  ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                              }`}
-                            >
-                              {imp.incident.Type}
+                        <div className="flex items-center justify-between font-bold">
+                          <span
+                            className={`px-1.5 py-0.2 rounded text-[10px] ${
+                              imp.Type.toLowerCase().includes('accident') || imp.Type.toLowerCase().includes('black out')
+                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                            }`}
+                          >
+                            {imp.Type}
+                          </span>
+                          {imp.affectedServices.length > 0 && (
+                            <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
+                              Affects Bus: {imp.affectedServices.join(', ')}
                             </span>
-                            <span className="text-slate-700 dark:text-slate-300">
-                              ~{imp.distanceKm.toFixed(1)}km from stop
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 line-clamp-2">
-                            {imp.incident.Message}
-                          </p>
+                          )}
                         </div>
+                        <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 font-medium">
+                          {imp.Message}
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -1283,23 +1217,22 @@ export default function App() {
               )}
             </div>
 
-            {/* Arriving Bus Services Cards */}
+            {/* Bus Services Grid */}
             <div className="space-y-3">
               <div className="flex items-center justify-between px-1">
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                   Bus Services ({displayedServices.length})
                 </h3>
                 <span className="text-xs text-slate-400 font-mono">
-                  Sync: {lastRefreshed ? lastRefreshed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Pending'}
+                  Sync: {lastRefreshed ? lastRefreshed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '12:35 PM'}
                 </span>
               </div>
 
               {displayedServices.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {displayedServices.map((svc) => {
+                  {displayedServices.map((svc: CorrelatedService) => {
                     const arr1 = formatArrivalTime(svc.NextBus?.EstimatedArrival);
                     const arr2 = formatArrivalTime(svc.NextBus2?.EstimatedArrival);
-                    const arr3 = formatArrivalTime(svc.NextBus3?.EstimatedArrival);
                     const isImpacted = svc.trafficImpact.status !== 'clear';
                     const isExpanded = Boolean(expandedServices[svc.ServiceNo]);
 
@@ -1326,7 +1259,7 @@ export default function App() {
                               </span>
                             </div>
 
-                            {/* Traffic Status Indicator */}
+                            {/* Traffic Status Tag */}
                             <button
                               onClick={() => toggleServiceExpand(svc.ServiceNo)}
                               className={`flex items-center gap-1 text-xs font-bold transition px-2.5 py-1 rounded-xl border ${
@@ -1346,22 +1279,22 @@ export default function App() {
                               )}
                               <span>
                                 {svc.trafficImpact.status === 'severe'
-                                  ? 'Severe Delay'
+                                  ? 'Route Affected'
                                   : svc.trafficImpact.status === 'moderate'
-                                  ? 'Traffic Delay'
-                                  : 'Clear'}
+                                  ? 'Route Advisory'
+                                  : 'Route Clear'}
                               </span>
                               {isImpacted && (isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
                             </button>
                           </div>
 
-                          {/* Delay Advisory Text */}
-                          {svc.trafficImpact.delayRiskText && (
+                          {/* Impact text */}
+                          {svc.trafficImpact.impactText && (
                             <div
                               onClick={() => toggleServiceExpand(svc.ServiceNo)}
                               className="mb-3 px-3 py-1.5 rounded-xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-[11px] font-semibold text-rose-800 dark:text-rose-300 flex items-center justify-between cursor-pointer"
                             >
-                              <span className="truncate">{svc.trafficImpact.delayRiskText}</span>
+                              <span className="truncate">{svc.trafficImpact.impactText}</span>
                               <span className="text-[10px] underline ml-2 shrink-0">Details</span>
                             </div>
                           )}
@@ -1371,13 +1304,12 @@ export default function App() {
                             <div className="mb-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-2 text-xs">
                               <div className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
                                 <Navigation className="w-3.5 h-3.5 text-indigo-500" />
-                                <span>Correlated Incidents in Path:</span>
+                                <span>Reported on this service's route corridor:</span>
                               </div>
-                              {svc.trafficImpact.impactedBy.map((imp, iIdx) => (
+                              {svc.trafficImpact.impactedBy.map((imp: CorrelatedImpact, iIdx: number) => (
                                 <div key={iIdx} className="text-[11px] bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
                                   <div className="flex items-center justify-between font-bold text-rose-600 dark:text-rose-400">
                                     <span>{imp.incident.Type}</span>
-                                    <span className="font-mono text-slate-500">~{imp.distanceKm.toFixed(1)} km away</span>
                                   </div>
                                   <p className="text-slate-600 dark:text-slate-400 mt-1">
                                     {imp.incident.Message}
@@ -1417,24 +1349,11 @@ export default function App() {
                           </div>
 
                           {/* Subsequent buses */}
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            <div className="p-2.5 rounded-lg bg-slate-50/70 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/50">
-                              <div className="text-[10px] text-slate-400 font-medium">
-                                2nd Bus
-                              </div>
-                              <div className="mt-0.5 font-bold text-slate-700 dark:text-slate-200">
-                                {arr2.minutes}
-                              </div>
-                            </div>
-
-                            <div className="p-2.5 rounded-lg bg-slate-50/70 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/50">
-                              <div className="text-[10px] text-slate-400 font-medium">
-                                3rd Bus
-                              </div>
-                              <div className="mt-0.5 font-bold text-slate-700 dark:text-slate-200">
-                                {arr3.minutes}
-                              </div>
-                            </div>
+                          <div className="p-2.5 rounded-lg bg-slate-50/70 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/50 text-xs flex items-center justify-between">
+                            <span className="text-[11px] text-slate-400">2nd Bus</span>
+                            <span className="font-bold text-slate-700 dark:text-slate-200">
+                              {arr2.minutes}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -1447,9 +1366,6 @@ export default function App() {
                   <h4 className="text-base font-bold text-slate-800 dark:text-slate-200">
                     No Services Found for Stop #{busStopCode}
                   </h4>
-                  <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-                    Check if the stop code is correct, or switch to Nearby Stops to explore stops around you.
-                  </p>
                 </div>
               )}
             </div>
@@ -1459,93 +1375,180 @@ export default function App() {
         {/* TAB 3: TRAFFIC INCIDENTS */}
         {activeTab === 'traffic' && (
           <div className="space-y-6">
+            {/* Header with Source Link and List Timestamp */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <div className="flex items-center gap-2">
                     <Car className="w-5 h-5 text-amber-500" />
-                    Live Traffic Incidents & Expressway Status
-                  </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Live roadworks, accidents, and breakdowns from LTA TrafficIncidents
-                  </p>
+                    <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                      Live Traffic Incidents & Route Corridors
+                    </h2>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                    <span>Incident list updated: Snapshot as of 12:35 PM SGT</span>
+                    <span aria-hidden="true">·</span>
+                    <a
+                      href="https://onemotoring.lta.gov.sg/content/onemotoring/home/driving/traffic_information/traffic_updates_and_road_closures.html"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 font-semibold"
+                    >
+                      <span>OneMotoring Live Traffic Updates</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
                 </div>
-                <div className="relative w-full sm:w-72">
-                  <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+
+                {/* Route-Based Filtering Control */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setFilterRouteOnly(!filterRouteOnly)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition ${
+                      filterRouteOnly
+                        ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <Filter className="w-3.5 h-3.5" />
+                    <span>
+                      {filterRouteOnly
+                        ? `Filtered to Stop #${busStopCode} Routes (${relevantRouteIncidents.length})`
+                        : `Showing All Singapore Incidents (${allIncidentsWithRouteMatch.length})`}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Filtering summary bar */}
+              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
+                <div>
+                  {filterRouteOnly ? (
+                    <span>
+                      Showing <strong>{relevantRouteIncidents.length}</strong> incident(s) on roads used by Stop #{busStopCode} ({currentStopMeta.name}) buses. {allIncidentsWithRouteMatch.length - relevantRouteIncidents.length} unrelated expressway roadworks hidden.
+                    </span>
+                  ) : (
+                    <span>
+                      Showing all <strong>{allIncidentsWithRouteMatch.length}</strong> incidents across Singapore including distant expressway roadworks.
+                    </span>
+                  )}
+                </div>
+
+                <div className="relative w-full sm:w-60">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
                   <input
                     type="text"
                     value={trafficSearch}
                     onChange={(e) => setTrafficSearch(e.target.value)}
-                    placeholder="Search expressway (e.g. PIE, ECP, CTE)"
-                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    placeholder="Search road or expressway"
+                    className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
               </div>
             </div>
 
-            {trafficData.length > 0 ? (
+            {/* Incident Cards List */}
+            {displayedIncidents.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {trafficData
-                  .filter((inc) => !trafficSearch || inc.Message.toLowerCase().includes(trafficSearch.toLowerCase()))
-                  .map((inc, index) => {
-                    const isAccident = inc.Type.toLowerCase().includes('accident');
-                    const isRoadwork = inc.Type.toLowerCase().includes('roadwork');
+                {displayedIncidents.map((inc, index) => {
+                  const isAccident = inc.Type.toLowerCase().includes('accident');
+                  const isBlackOut = inc.Type.toLowerCase().includes('black out');
+                  const isRoadwork = inc.Type.toLowerCase().includes('roadwork');
 
-                    const distToUser = inc.Latitude && inc.Longitude
-                      ? calculateDistanceKm(userLocation.lat, userLocation.lng, inc.Latitude, inc.Longitude)
-                      : null;
-
-                    return (
-                      <div
-                        key={index}
-                        className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm hover:border-amber-300 dark:hover:border-amber-800 transition flex flex-col justify-between"
-                      >
-                        <div>
-                          <div className="flex items-center justify-between mb-3">
-                            <span
-                              className={`text-xs font-bold uppercase tracking-wider ${
-                                isAccident
-                                  ? 'text-rose-600 dark:text-rose-400'
-                                  : isRoadwork
-                                  ? 'text-amber-600 dark:text-amber-400'
-                                  : 'text-blue-600 dark:text-blue-400'
-                              }`}
-                            >
-                              {inc.Type}
-                            </span>
-                            {distToUser !== null && (
-                              <span className="text-xs text-slate-500 font-mono">
-                                ~{distToUser.toFixed(1)} km from your location
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-sm font-medium text-slate-800 dark:text-slate-200 leading-relaxed">
-                            {inc.Message}
-                          </p>
-                        </div>
-
-                        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400">
-                          <span>GPS: {inc.Latitude?.toFixed(3)}, {inc.Longitude?.toFixed(3)}</span>
-                          <button
-                            onClick={() => setActiveTab('nearby')}
-                            className="text-emerald-600 dark:text-emerald-400 hover:underline font-bold"
+                  return (
+                    <div
+                      key={index}
+                      className={`bg-white dark:bg-slate-900 rounded-2xl border p-5 shadow-sm transition flex flex-col justify-between ${
+                        inc.affectedServices.length > 0
+                          ? 'border-rose-300 dark:border-rose-900/80 shadow-rose-500/5'
+                          : 'border-slate-200 dark:border-slate-800'
+                      }`}
+                    >
+                      <div>
+                        {/* Incident Type & Status */}
+                        <div className="flex items-center justify-between mb-2">
+                          <span
+                            className={`text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                              isAccident || isBlackOut
+                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                : isRoadwork
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                            }`}
                           >
-                            Find nearby bus stops
-                          </button>
+                            {inc.Type}
+                          </span>
+
+                          {inc.affectedServices.length > 0 ? (
+                            <span className="text-xs font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                              <AlertCircle className="w-3.5 h-3.5" />
+                              <span>On Route of Stop #{busStopCode}</span>
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400">
+                              Distant Expressway Roadwork
+                            </span>
+                          )}
                         </div>
+
+                        {/* Full Message */}
+                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 leading-relaxed mt-2">
+                          {inc.Message}
+                        </p>
+
+                        {/* Affected Services from this Stop */}
+                        {inc.affectedServices.length > 0 && (
+                          <div className="mt-3 p-2.5 rounded-xl bg-rose-50/70 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-xs">
+                            <span className="font-bold text-rose-800 dark:text-rose-300">
+                              Calling Services on this Corridor:
+                            </span>{' '}
+                            <span className="font-mono font-bold text-rose-700 dark:text-rose-300">
+                              {inc.affectedServices.join(', ')}
+                            </span>
+                          </div>
+                        )}
                       </div>
-                    );
-                  })}
+
+                      {/* Card Footer: Source and Action */}
+                      <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                        <a
+                          href="https://onemotoring.lta.gov.sg/content/onemotoring/home/driving/traffic_information/traffic_updates_and_road_closures.html"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="hover:text-emerald-600 flex items-center gap-1"
+                        >
+                          <span>OneMotoring Feed</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+
+                        <button
+                          onClick={() => setActiveTab('buses')}
+                          className="text-emerald-600 dark:text-emerald-400 hover:underline font-bold"
+                        >
+                          View Stop #{busStopCode} Buses
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-12 text-center">
                 <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
                 <h4 className="text-base font-bold text-slate-800 dark:text-slate-200">
-                  No Active Traffic Incidents
+                  No Route Incidents for Stop #{busStopCode}
                 </h4>
                 <p className="text-xs text-slate-400 mt-1">
-                  All major Singapore corridors are operating without reported bottlenecks.
+                  All roads used by buses from this stop are currently operating without reported incidents.
                 </p>
+                {filterRouteOnly && (
+                  <button
+                    onClick={() => setFilterRouteOnly(false)}
+                    className="mt-3 px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300"
+                  >
+                    View All Singapore Roadworks
+                  </button>
+                )}
               </div>
             )}
           </div>

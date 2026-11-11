@@ -108,7 +108,8 @@ export const KNOWN_BUS_STOPS: Record<string, BusStopInfo> = {
   '01012': { code: '01012', lat: 1.29815, lng: 103.84988, name: 'Hotel Rendezvous', road: 'Bras Basah Rd', neighborhood: 'Bras Basah', services: ['7', '14', '16', '36', '111', '131', '162', '167', '175'] },
   '65009': { code: '65009', lat: 1.35334, lng: 103.94523, name: 'Tampines Stn / Int', road: 'Tampines Ave 4', neighborhood: 'Tampines', services: ['3', '4', '10', '19', '20', '23', '28', '29', '31', '37', '38', '65', '67'] },
   '65141': { code: '65141', lat: 1.35410, lng: 103.94380, name: 'Opp Tampines Stn', road: 'Tampines Ave 4', neighborhood: 'Tampines', services: ['15', '21', '27', '168'] },
-  '10009': { code: '10009', lat: 1.26477, lng: 103.82236, name: 'Opp VivoCity', road: 'Telok Blangah Rd', neighborhood: 'HarbourFront', services: ['10', '30', '57', '61', '97', '100', '131', '143', '145', '166'] },
+  '10009': { code: '10009', lat: 1.28211, lng: 103.81722, name: 'Bt Merah Int', road: 'Bt Merah Central', neighborhood: 'Bukit Merah', services: ['5', '16', '16M', '57', '75', '123', '131', '132', '139', '153', '167', '176', '198', '272', '273', '851'] },
+  '14119': { code: '14119', lat: 1.26530, lng: 103.82180, name: 'Opp VivoCity', road: 'Telok Blangah Rd', neighborhood: 'HarbourFront', services: ['10', '30', '57', '61', '97', '100', '131', '143', '145', '166'] },
   '14141': { code: '14141', lat: 1.26380, lng: 103.82190, name: 'VivoCity', road: 'HarbourFront Walk', neighborhood: 'HarbourFront', services: ['10', '30', '61', '97', '100', '131', '143', '166', '188'] },
   '28009': { code: '28009', lat: 1.33315, lng: 103.74229, name: 'Jurong East Bus Int', road: 'Jurong Gateway Rd', neighborhood: 'Jurong East', services: ['51', '52', '66', '78', '79', '97', '98', '105', '143', '183', '197', '333', '334', '335'] },
   '17179': { code: '17179', lat: 1.31550, lng: 103.76520, name: 'Clementi Stn Exit A', road: 'Commonwealth Ave West', neighborhood: 'Clementi', services: ['14', '52', '96', '105', '106', '147', '154', '165', '166', '196'] },
@@ -121,6 +122,60 @@ export const KNOWN_BUS_STOPS: Record<string, BusStopInfo> = {
   '03218': { code: '03218', lat: 1.29120, lng: 103.85040, name: 'Opp The Treasury', road: 'North Bridge Rd', neighborhood: 'City Hall', services: ['32', '51', '61', '63', '80', '124', '145', '166', '174', '197'] },
   '21009': { code: '21009', lat: 1.33920, lng: 103.70560, name: 'Boon Lay Int', road: 'Jurong West Central 3', neighborhood: 'Jurong West', services: ['30', '79', '154', '157', '174', '179', '181', '192', '193', '194', '198', '240', '241'] }
 };
+
+export const BUS_SERVICE_CORRIDORS: Record<string, string[]> = {
+  '5': ['Orchard', 'Scotts', 'Newton', 'Novena', 'Jalan Toa Payoh', 'MacPherson', 'Eunos', 'Bedok', 'Pasir Ris', 'Tiong Bahru', 'Havelock', 'Henderson', 'Bt Merah', 'Bukit Merah'],
+  '16': ['Orchard', 'Bras Basah', 'Marine Parade', 'Bedok', 'Tiong Bahru', 'Outram', 'Havelock', 'Bt Merah', 'Bukit Merah'],
+  '16M': ['Orchard', 'Bras Basah', 'Marine Parade', 'Bedok', 'Tiong Bahru', 'Outram', 'Havelock', 'Bt Merah', 'Bukit Merah'],
+  '57': ['Lower Delta', 'Telok Blangah', 'Shenton Way', 'Marina', 'Bugis', 'Little India', 'Bishan', 'Toa Payoh', 'Bt Merah', 'Bukit Merah'],
+  '75': ['Bt Timah', 'Bukit Timah', 'Sixth Ave', 'Clementi', 'Holland', 'Napier', 'Grange', 'Orchard', 'Bras Basah', 'Marina', 'Shenton Way', 'Outram', 'Kim Tian', 'Bt Merah', 'Bukit Merah', 'Cashew', 'Petir'],
+  '123': ['Queensway', 'Commonwealth', 'Orchard', 'Somerset', 'Havelock', 'Tiong Bahru', 'Henderson', 'Bt Merah', 'Bukit Merah', 'Lower Delta', 'Sentosa', 'HarbourFront'],
+  '131': ['Henderson', 'Telok Blangah', 'Shenton Way', 'Bras Basah', 'Little India', 'Balestier', 'Novena', 'Toa Payoh', 'Bt Merah', 'Bukit Merah'],
+  '132': ['Orchard', 'Tanglin', 'Stevens', 'Whitley', 'PIE', 'Upper Thomson', 'Ang Mo Kio', 'Hougang', 'Henderson', 'Bt Merah', 'Bukit Merah'],
+  '139': ['Henderson', 'River Valley', 'Dhoby Ghaut', 'Balestier', 'Whampoa', 'Toa Payoh', 'Bt Merah', 'Bukit Merah'],
+  '153': ['Queensway', 'Commonwealth', 'Farrer', 'Adam', 'Lornie', 'PIE', 'Whitley', 'Braddell', 'Serangoon', 'Hougang', 'Bt Merah', 'Bukit Merah'],
+  '167': ['Orchard', 'Scotts', 'Newton', 'Thomson', 'Upper Thomson', 'Sembawang', 'Shenton Way', 'Outram', 'Henderson', 'Bt Merah', 'Bukit Merah'],
+  '176': ['Henderson', 'Telok Blangah', 'Pasir Panjang', 'West Coast', 'Clementi', 'Upper Bukit Timah', 'Bukit Panjang', 'Bt Merah', 'Bukit Merah'],
+  '198': ['Queensway', 'Commonwealth', 'Buona Vista', 'Clementi', 'Jurong East', 'Boon Lay', 'Bt Merah', 'Bukit Merah'],
+  '272': ['Telok Blangah Heights', 'Henderson', 'Bt Merah', 'Bukit Merah'],
+  '273': ['Telok Blangah', 'Henderson', 'Bt Merah', 'Bukit Merah'],
+  '851': ['Tiong Bahru', 'Chinatown', 'Bugis', 'Little India', 'Thomson', 'Marymount', 'Ang Mo Kio', 'Yishun', 'Bt Merah', 'Bukit Merah'],
+  '15': ['Marine Parade', 'Telok Kurau', 'Eunos', 'Kaki Bukit', 'Tampines', 'Pasir Ris'],
+  '31': ['Toa Payoh', 'Boon Keng', 'Geylang', 'Marine Parade', 'Bedok', 'Tampines'],
+  '36': ['Changi Airport', 'ECP', 'Marine Parade', 'Tanjong Katong', 'Suntec', 'Raffles Blvd', 'Orchard', 'Tomlinson'],
+  '43': ['Marine Parade', 'Tanjong Katong', 'Paya Lebar', 'Serangoon', 'Buangkok', 'Sengkang', 'Punggol'],
+  '48': ['Buona Vista', 'Holland', 'Farrer', 'Bt Timah', 'Dunearn', 'Newton', 'Little India', 'Bugis', 'Marine Parade', 'Bedok'],
+  '196': ['Clementi', 'AYE', 'Buona Vista', 'Commonwealth', 'Alexandra', 'Shenton Way', 'Nicoll Hwy', 'Marine Parade', 'Bedok'],
+  '197': ['Jurong East', 'Clementi', 'Alexandra', 'Chinatown', 'Bugis', 'Geylang', 'Marine Parade', 'Bedok'],
+  '7': ['Clementi', 'Commonwealth', 'Holland', 'Orchard', 'Bras Basah', 'Victoria', 'Kallang', 'Geylang', 'Eunos', 'Bedok'],
+  '14': ['Clementi', 'Dover', 'Buona Vista', 'Commonwealth', 'Holland', 'Orchard', 'Bras Basah', 'Nicoll Hwy', 'Mountbatten', 'East Coast', 'Bedok'],
+  '65': ['Tampines', 'Bedok Reservoir', 'Ubi', 'MacPherson', 'Jalan Besar', 'Little India', 'Orchard', 'Lower Delta', 'HarbourFront'],
+  '100': ['Ghim Moh', 'Commonwealth', 'Alexandra', 'Telok Blangah', 'HarbourFront', 'Shenton Way', 'Beach Rd', 'Geylang', 'Serangoon'],
+  '106': ['Bukit Batok', 'Toh Tuck', 'Commonwealth', 'Holland', 'Orchard', 'Bras Basah', 'Marina Bay', 'Shenton Way'],
+  '111': ['Ghim Moh', 'Commonwealth', 'Holland', 'Tanglin', 'Orchard', 'Bras Basah', 'Marina Centre'],
+  '175': ['Clementi', 'West Coast', 'Pasir Panjang', 'Alexandra', 'Havelock', 'Clarke Quay', 'Bugis', 'Geylang'],
+  '186': ['Shenton Way', 'Raffles Place', 'Chinatown', 'Havelock', 'Balestier', 'St. Michael'],
+  '10': ['Tampines', 'Bedok', 'Marine Parade', 'Nicoll Hwy', 'Shenton Way', 'Telok Blangah', 'Pasir Panjang', 'Clementi'],
+};
+
+/**
+ * Matches an incident to services calling at a specific stop by analyzing the road corridor in the incident message.
+ */
+export function getAffectedServicesOnIncident(incidentMessage: string, stopServices: string[]): string[] {
+  if (!incidentMessage || !stopServices || stopServices.length === 0) return [];
+  const msgLower = incidentMessage.toLowerCase();
+  const matchedServices: string[] = [];
+
+  for (const svc of stopServices) {
+    const corridors = BUS_SERVICE_CORRIDORS[svc] || [];
+    const isCorridorHit = corridors.some((corridor) => msgLower.includes(corridor.toLowerCase()));
+    if (isCorridorHit && !matchedServices.includes(svc)) {
+      matchedServices.push(svc);
+    }
+  }
+
+  return matchedServices;
+}
 
 export interface NearbyBusStopResult extends BusStopInfo {
   distanceKm: number;
