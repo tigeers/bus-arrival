@@ -37,4 +37,9 @@ apiRouter.all('/bustracker/trains', (req, res) => {
   return busTrackerHandler(req, res);
 });
 
+apiRouter.all('/bustracker/correlate', (req, res) => {
+  req.query.endpoint = 'correlate';
+  return busTrackerHandler(req, res);
+});
+
 export default apiRouter;
