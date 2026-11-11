@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import apiRouter from './api/index.ts';
 import healthHandler from './api/health.ts';
 import busTrackerHandler from './api/bustracker.ts';
+import feedHandler from './api/feed.js';
 
 dotenv.config();
 
@@ -30,6 +31,7 @@ async function startServer() {
   });
 
   // Mount API endpoints according to instructions
+  app.get('/api/feed', feedHandler);
   app.use('/api/health', healthHandler);
   app.use('/api/bustracker', busTrackerHandler);
   app.use('/api', apiRouter);

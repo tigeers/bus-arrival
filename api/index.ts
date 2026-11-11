@@ -6,9 +6,11 @@ import busTrackerHandler, {
   fetchTrainServiceAlerts,
   getLtaAccountKey,
 } from './bustracker.ts';
+import feedHandler from './feed.js';
 
 export * from './health.ts';
 export * from './bustracker.ts';
+export { default as feedHandler } from './feed.js';
 
 export const apiRouter = express.Router();
 
@@ -40,6 +42,10 @@ apiRouter.all('/bustracker/trains', (req, res) => {
 apiRouter.all('/bustracker/correlate', (req, res) => {
   req.query.endpoint = 'correlate';
   return busTrackerHandler(req, res);
+});
+
+apiRouter.get('/feed', (req, res) => {
+  return feedHandler(req, res);
 });
 
 export default apiRouter;
